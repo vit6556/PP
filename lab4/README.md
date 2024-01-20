@@ -59,7 +59,7 @@ Memory Size: 32 GB
 - `omp_get_wtime()`: Возвращает текущее время (используется для измерения времени выполнения).
 - `#pragma omp parallel num_threads(threads)`: Запускает параллельный блок с указанным количеством потоков.
 - `shared`: Ключевое слово, определяющее общие переменные для всех потоков.
-- `reduction(max`: max)`: Директива для выполнения операции редукции (в данном случае, поиска максимального значения).
+- `reduction(max: max)`: Директива для выполнения операции редукции (в данном случае, поиска максимального значения).
 - `default(none)`: Указывает, что каждая переменная должна быть явно определена.
 - `#pragma omp for schedule(static | dynamic | guided, chunk)`:
     - `static`: Распределение итераций выполняется заранее в равных частях между потоками. Если размер чанка не указан, итерации
@@ -315,63 +315,83 @@ Memory Size: 32 GB
 
 - Тип разделения: dynamic и static
 
-  Кривые имеют схожие формы, однако при большем количестве фрагмента, алгоритм отрабатывает быстрее
+  Кривые имеют схожие формы, однако при большем размере фрагмента, алгоритм отрабатывает быстрее
 
 - Тип разделения: guided
 
-  Этот тип показывает лучшие результаты при любых размерах фрагментов и при любом количестве потоков. Время работы алгоритма при разных размерах фрагмента отличается в пределах погрешности
+  Этот тип показывает лучшие результаты при любых размерах фрагмента и при любом количестве потоков. Время работы алгоритма при разных размерах фрагмента отличается в пределах погрешности
 
 ## Приложение
-### Последовательная программа
+### Программа для анализа окружения
 <details>
-  <summary>Исходный код последовательной программы</summary>
+  <summary>Исходный код программы для анализа окружения</summary>
 
   ```c
   #include <stdio.h>
-  #include <stdlib.h>
   #include <omp.h>
 
+  int main() {
+      printf("OpenMP Version %d\n", _OPENMP);
+      printf("Number of processors: %d\n", omp_get_num_procs());
+      printf("Maximum number of threads: %d\n", omp_get_max_threads());
+      printf("Dynamic threads are %s\n", omp_get_dynamic() ? "enabled" : "disabled");
+      printf("Timer resolution: %g seconds\n", omp_get_wtick());
+      printf("Nested parallelism is %s\n", omp_get_nested() ? "enabled" : "disabled");
+      printf("Max active levels: %d\n", omp_get_max_active_levels());
 
-  int main(int argc, char** argv) {
-      const int count = 20000000;
-      const int random_seed = 132957;
-      const int iterations = 20;
-      double start_time, end_time, total = 0;
-      int* array;
-      int max;
-
-      srand(random_seed);
-      printf("OpenMP version: %d\n", _OPENMP);
-
-      for (int j = 0; j < iterations; ++j) {
-          max = -1;
-
-          array = (int*)malloc(count*sizeof(int));
-          for (int i = 0; i < count; ++i) { 
-              array[i] = rand();
-          }
-
-          start_time = omp_get_wtime();
-          for (int i = 0; i < count; ++i) {
-              if (array[i] > max) {
-                  max = array[i];
-              }
-          }
-          end_time = omp_get_wtime();
-          total += end_time - start_time;
-
-          free(array);
-      }
-
-      printf("Avg time: %f\n", total / (double) iterations);
-      return 0;
+      omp_sched_t kind;
+      int chunk_size;
+      omp_get_schedule(&kind, &chunk_size);
+      printf("Schedule: %d, chunk size: %d\n", kind, chunk_size);
   }
   ```
 </details>
 
-### Параллельная программа
+### Параллельная программа, использующая механизм явных блокировок
 <details>
-  <summary>Исходный код параллельной программы</summary>
+  <summary>Исходный код параллельной программы, использующей механизм явных блокировок</summary>
+
+  ```c
+  #include <stdio.h>
+  #include <stdlib.h>
+  #include <omp.h>
+
+  int main() {
+      const int count = 100;
+      const int random_seed = 132957;
+
+      srand(random_seed);
+
+      int sum = 0;
+      int *array = malloc(count * sizeof(int));
+      for (int i = 0; i < count; i++) { 
+          array[i] = rand();
+      }
+
+      omp_lock_t lock;
+      omp_init_lock(&lock);
+
+      #pragma omp parallel for
+      for (int i = 0; i < count; i++) {
+          omp_set_lock(&lock);
+          sum += array[i];
+          omp_unset_lock(&lock);
+      }
+
+      omp_destroy_lock(&lock);
+
+      printf("Sum: %d\n", sum);
+
+      free(array);
+      return 0;
+  }
+  ```
+
+</details>
+
+### Параллельная программа с настройкой schedule
+<details>
+  <summary>Исходный код параллельной программы с настройкой schedule</summary>
 
   ```c
   #include <stdio.h>
@@ -380,10 +400,11 @@ Memory Size: 32 GB
 
 
   int main(int argc, char** argv) {
-      const int count = 20000000;
+      const int count = 10000000;
       const int random_seed = 132957;
       const int max_threads = 24;
       const int iterations = 20;
+      const int chunk = 1024;
       double start_time, end_time, total;
       int* array;
       int max;
@@ -403,9 +424,9 @@ Memory Size: 32 GB
               }
 
               start_time = omp_get_wtime();
-              #pragma omp parallel num_threads(threads) shared(array, count) reduction(max: max) default(none)
+              #pragma omp parallel num_threads(threads) shared(array, count, chunk) reduction(max: max) default(none)
               {
-                  #pragma omp for
+                  #pragma omp for schedule(guided, chunk)
                   for (int i = 0; i < count; ++i) {
                       if (array[i] > max) {
                           max = array[i];
@@ -423,5 +444,4 @@ Memory Size: 32 GB
       return 0;
   }
   ```
-
 </details>
