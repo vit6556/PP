@@ -11,7 +11,7 @@ bool isPrime(int number, int *primes) {
     int check_amount = (int) sqrt(number);
     if (number <= 1) return false;
 
-    #pragma omp parallel num_threads(2)  shared(prime, check_amount)
+    #pragma omp parallel shared(prime, check_amount)
     {
         #pragma omp for
         for (int i = 2; i <= check_amount; i++) {
@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
     int start = 1;
-    int end = 35000000;
+    int end = 100000000;
 
     int primes = 0, result = 0;
     double start_time, end_time;
@@ -58,7 +58,9 @@ int main(int argc, char **argv) {
         local_start += rem;
     }
 
-    omp_set_num_threads(6);
+    int max_threads = omp_get_max_threads();
+    int threads = (size > max_threads) ? max_threads / size : 2;
+    omp_set_num_threads(threads);
     MPI_Barrier(MPI_COMM_WORLD);
 
     start_time = MPI_Wtime();

@@ -19,7 +19,7 @@ bool isPrime(int number, int *primes) {
 
 int main(int argc, char **argv) {
     int start = 1;
-    int end = 10000000;
+    int end = 100000000;
 
     int primes = 0;
     double start_time, end_time;
